@@ -1,0 +1,6 @@
+@AgrocultivoWebSync_HostAddress = http://localhost:5270
+
+GET {{AgrocultivoWebSync_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

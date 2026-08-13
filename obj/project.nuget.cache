@@ -1,0 +1,24 @@
+{
+  "version": 2,
+  "dgSpecHash": "j5r/zWYq9LY=",
+  "success": true,
+  "projectFilePath": "C:\\QBTicketsDesktop\\AgrocultivoWebSync\\AgrocultivoWebSync\\AgrocultivoWebSync.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\Usuario\\.nuget\\packages\\microsoft.aspnetcore.openapi\\10.0.10\\microsoft.aspnetcore.openapi.10.0.10.nupkg.sha512",
+    "C:\\Users\\Usuario\\.nuget\\packages\\microsoft.openapi\\2.0.0\\microsoft.openapi.2.0.0.nupkg.sha512"
+  ],
+  "logs": [
+    {
+      "code": "NU1903",
+      "level": "Warning",
+      "message": "El paquete \"Microsoft.OpenApi\" 2.0.0 tiene una vulnerabilidad de gravedad alta conocida, https://github.com/advisories/GHSA-v5pm-xwqc-g5wc",
+      "projectPath": "C:\\QBTicketsDesktop\\AgrocultivoWebSync\\AgrocultivoWebSync\\AgrocultivoWebSync.csproj",
+      "warningLevel": 1,
+      "filePath": "C:\\QBTicketsDesktop\\AgrocultivoWebSync\\AgrocultivoWebSync\\AgrocultivoWebSync.csproj",
+      "libraryId": "Microsoft.OpenApi",
+      "targetGraphs": [
+        "net10.0"
+      ]
+    }
+  ]
+}
