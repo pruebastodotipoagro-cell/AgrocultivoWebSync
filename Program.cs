@@ -1,3 +1,7 @@
+using System.Net.Http.Headers;
+using System.Text;
+using System.Text.Json;
+
 var builder = WebApplication.CreateBuilder(args);
 
 var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
@@ -12,5 +16,105 @@ app.MapGet("/", () => new
 });
 
 app.MapGet("/health", () => "OK");
+
+app.MapGet("/auth/quickbooks", (IConfiguration config) =>
+{
+    var clientId = config["QUICKBOOKS_CLIENT_ID"];
+    var redirectUri = config["QUICKBOOKS_REDIRECT_URI"];
+
+    if (string.IsNullOrWhiteSpace(clientId) ||
+        string.IsNullOrWhiteSpace(redirectUri))
+    {
+        return Results.Problem(
+            "Faltan QUICKBOOKS_CLIENT_ID o QUICKBOOKS_REDIRECT_URI.");
+    }
+
+    var state = Guid.NewGuid().ToString("N");
+
+    var authorizationUrl =
+        "https://appcenter.intuit.com/connect/oauth2" +
+        $"?client_id={Uri.EscapeDataString(clientId)}" +
+        "&response_type=code" +
+        "&scope=com.intuit.quickbooks.accounting" +
+        $"&redirect_uri={Uri.EscapeDataString(redirectUri)}" +
+        $"&state={Uri.EscapeDataString(state)}";
+
+    return Results.Redirect(authorizationUrl);
+});
+
+app.MapGet("/auth/quickbooks/callback", async (
+    string? code,
+    string? realmId,
+    string? error,
+    IConfiguration config) =>
+{
+    if (!string.IsNullOrWhiteSpace(error))
+        return Results.BadRequest($"QuickBooks devolvió un error: {error}");
+
+    if (string.IsNullOrWhiteSpace(code) ||
+        string.IsNullOrWhiteSpace(realmId))
+    {
+        return Results.BadRequest(
+            "QuickBooks no devolvió code o realmId.");
+    }
+
+    var clientId = config["QUICKBOOKS_CLIENT_ID"];
+    var clientSecret = config["QUICKBOOKS_CLIENT_SECRET"];
+    var redirectUri = config["QUICKBOOKS_REDIRECT_URI"];
+
+    if (string.IsNullOrWhiteSpace(clientId) ||
+        string.IsNullOrWhiteSpace(clientSecret) ||
+        string.IsNullOrWhiteSpace(redirectUri))
+    {
+        return Results.Problem(
+            "Faltan variables de configuración de QuickBooks.");
+    }
+
+    using var http = new HttpClient();
+
+    var credentials =
+        Convert.ToBase64String(
+            Encoding.UTF8.GetBytes($"{clientId}:{clientSecret}"));
+
+    http.DefaultRequestHeaders.Authorization =
+        new AuthenticationHeaderValue("Basic", credentials);
+
+    var form = new Dictionary<string, string>
+    {
+        ["grant_type"] = "authorization_code",
+        ["code"] = code,
+        ["redirect_uri"] = redirectUri
+    };
+
+    var response = await http.PostAsync(
+        "https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer",
+        new FormUrlEncodedContent(form));
+
+    var body = await response.Content.ReadAsStringAsync();
+
+    if (!response.IsSuccessStatusCode)
+    {
+        return Results.Problem(
+            $"No se pudieron obtener los tokens de QuickBooks: {body}");
+    }
+
+    using var json = JsonDocument.Parse(body);
+
+    var accessToken =
+        json.RootElement.GetProperty("access_token").GetString();
+
+    var refreshToken =
+        json.RootElement.GetProperty("refresh_token").GetString();
+
+    return Results.Ok(new
+    {
+        conectado = true,
+        realmId,
+        mensaje = "QuickBooks conectado correctamente.",
+        // Por seguridad NO devolvemos los tokens al navegador.
+        accessTokenRecibido = !string.IsNullOrWhiteSpace(accessToken),
+        refreshTokenRecibido = !string.IsNullOrWhiteSpace(refreshToken)
+    });
+});
 
 app.Run();
