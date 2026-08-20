@@ -225,4 +225,111 @@ app.MapGet("/auth/quickbooks/callback", async (
     });
 });
 
+app.MapGet("/quickbooks/products", async (
+    AppDbContext db,
+    IConfiguration config) =>
+{
+    var connection = await db.QuickBooksWebConnections
+        .OrderByDescending(x => x.UpdatedAt)
+        .FirstOrDefaultAsync();
+
+    if (connection == null)
+    {
+        return Results.Problem(
+            "No existe una conexión guardada de QuickBooks.");
+    }
+
+    using var http = new HttpClient();
+
+    http.DefaultRequestHeaders.Authorization =
+        new AuthenticationHeaderValue(
+            "Bearer",
+            connection.AccessToken);
+
+    http.DefaultRequestHeaders.Accept.Add(
+        new MediaTypeWithQualityHeaderValue("application/json"));
+
+    var realmId = connection.RealmId;
+
+    var query = "select * from Item maxresults 1000";
+
+    var url =
+        $"https://quickbooks.api.intuit.com/v3/company/{realmId}/query" +
+        $"?query={Uri.EscapeDataString(query)}&minorversion=75";
+
+    var response = await http.GetAsync(url);
+
+    var body = await response.Content.ReadAsStringAsync();
+
+    if (!response.IsSuccessStatusCode)
+    {
+        return Results.Problem(
+            $"Error consultando productos de QuickBooks: {body}");
+    }
+
+    using var json = JsonDocument.Parse(body);
+
+    var productos = new List<object>();
+
+    if (json.RootElement
+        .TryGetProperty("QueryResponse", out var queryResponse) &&
+        queryResponse.TryGetProperty("Item", out var items))
+    {
+        foreach (var item in items.EnumerateArray())
+        {
+            var id =
+                item.TryGetProperty("Id", out var idValue)
+                    ? idValue.GetString()
+                    : null;
+
+            var nombre =
+                item.TryGetProperty("Name", out var nameValue)
+                    ? nameValue.GetString()
+                    : null;
+
+            var sku =
+                item.TryGetProperty("Sku", out var skuValue)
+                    ? skuValue.GetString()
+                    : null;
+
+            var tipo =
+                item.TryGetProperty("Type", out var typeValue)
+                    ? typeValue.GetString()
+                    : null;
+
+            decimal? precio = null;
+
+            if (item.TryGetProperty("UnitPrice", out var priceValue) &&
+                priceValue.ValueKind == JsonValueKind.Number)
+            {
+                precio = priceValue.GetDecimal();
+            }
+
+            decimal? existencia = null;
+
+            if (item.TryGetProperty("QtyOnHand", out var qtyValue) &&
+                qtyValue.ValueKind == JsonValueKind.Number)
+            {
+                existencia = qtyValue.GetDecimal();
+            }
+
+            productos.Add(new
+            {
+                id,
+                nombre,
+                sku,
+                tipo,
+                precio,
+                existencia
+            });
+        }
+    }
+
+    return Results.Ok(new
+    {
+        total = productos.Count,
+        productos
+    });
+});
+
 app.Run();
