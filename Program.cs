@@ -1,13 +1,57 @@
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using AgrocultivoWebSync.Data;
+using AgrocultivoWebSync.Models;
+using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// ===============================
+// CONEXIÓN A POSTGRESQL
+// ===============================
+
+var databaseUrl = Environment.GetEnvironmentVariable("DATABASE_URL");
+
+if (string.IsNullOrWhiteSpace(databaseUrl))
+{
+    throw new InvalidOperationException(
+        "No se encontró la variable DATABASE_URL");
+}
+
+var databaseUri = new Uri(databaseUrl);
+
+var userInfo = databaseUri.UserInfo.Split(':', 2);
+
+if (userInfo.Length != 2)
+{
+    throw new InvalidOperationException(
+        "DATABASE_URL no contiene usuario y contraseña válidos.");
+}
+
+var connectionString =
+    $"Host={databaseUri.Host};" +
+    $"Port={databaseUri.Port};" +
+    $"Database={databaseUri.AbsolutePath.TrimStart('/')};" +
+    $"Username={Uri.UnescapeDataString(userInfo[0])};" +
+    $"Password={Uri.UnescapeDataString(userInfo[1])};" +
+    "SSL Mode=Prefer;Trust Server Certificate=true;";
+
+builder.Services.AddDbContext<AppDbContext>(options =>
+    options.UseNpgsql(connectionString));
+
+// ===============================
+// PUERTO
+// ===============================
 
 var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
 builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
 
 var app = builder.Build();
+
+// ===============================
+// ENDPOINTS BÁSICOS
+// ===============================
 
 app.MapGet("/", () => new
 {
@@ -16,6 +60,10 @@ app.MapGet("/", () => new
 });
 
 app.MapGet("/health", () => "OK");
+
+// ===============================
+// INICIAR CONEXIÓN QUICKBOOKS
+// ===============================
 
 app.MapGet("/auth/quickbooks", (IConfiguration config) =>
 {
@@ -42,14 +90,22 @@ app.MapGet("/auth/quickbooks", (IConfiguration config) =>
     return Results.Redirect(authorizationUrl);
 });
 
+// ===============================
+// CALLBACK QUICKBOOKS
+// ===============================
+
 app.MapGet("/auth/quickbooks/callback", async (
     string? code,
     string? realmId,
     string? error,
-    IConfiguration config) =>
+    IConfiguration config,
+    AppDbContext db) =>
 {
     if (!string.IsNullOrWhiteSpace(error))
-        return Results.BadRequest($"QuickBooks devolvió un error: {error}");
+    {
+        return Results.BadRequest(
+            $"QuickBooks devolvió un error: {error}");
+    }
 
     if (string.IsNullOrWhiteSpace(code) ||
         string.IsNullOrWhiteSpace(realmId))
@@ -101,19 +157,71 @@ app.MapGet("/auth/quickbooks/callback", async (
     using var json = JsonDocument.Parse(body);
 
     var accessToken =
-        json.RootElement.GetProperty("access_token").GetString();
+        json.RootElement
+            .GetProperty("access_token")
+            .GetString();
 
     var refreshToken =
-        json.RootElement.GetProperty("refresh_token").GetString();
+        json.RootElement
+            .GetProperty("refresh_token")
+            .GetString();
+
+    var expiresIn =
+        json.RootElement
+            .GetProperty("expires_in")
+            .GetInt32();
+
+    var refreshExpiresIn =
+        json.RootElement.TryGetProperty(
+            "x_refresh_token_expires_in",
+            out var refreshExpiry)
+                ? refreshExpiry.GetInt32()
+                : 0;
+
+    if (string.IsNullOrWhiteSpace(accessToken) ||
+        string.IsNullOrWhiteSpace(refreshToken))
+    {
+        return Results.Problem(
+            "QuickBooks no devolvió access_token o refresh_token.");
+    }
+
+    // ===============================
+    // GUARDAR O ACTUALIZAR CONEXIÓN
+    // ===============================
+
+    var existing = await db.QuickBooksWebConnections
+        .FirstOrDefaultAsync(x => x.RealmId == realmId);
+
+    if (existing == null)
+    {
+        existing = new QuickBooksWebConnection
+        {
+            RealmId = realmId
+        };
+
+        db.QuickBooksWebConnections.Add(existing);
+    }
+
+    existing.AccessToken = accessToken;
+    existing.RefreshToken = refreshToken;
+
+    existing.AccessTokenExpiresAt =
+        DateTime.UtcNow.AddSeconds(expiresIn);
+
+    existing.RefreshTokenExpiresAt =
+        refreshExpiresIn > 0
+            ? DateTime.UtcNow.AddSeconds(refreshExpiresIn)
+            : null;
+
+    existing.UpdatedAt = DateTime.UtcNow;
+
+    await db.SaveChangesAsync();
 
     return Results.Ok(new
     {
         conectado = true,
         realmId,
-        mensaje = "QuickBooks conectado correctamente.",
-        // Por seguridad NO devolvemos los tokens al navegador.
-        accessTokenRecibido = !string.IsNullOrWhiteSpace(accessToken),
-        refreshTokenRecibido = !string.IsNullOrWhiteSpace(refreshToken)
+        mensaje = "QuickBooks conectado y guardado correctamente."
     });
 });
 

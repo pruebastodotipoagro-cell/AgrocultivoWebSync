@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("AgrocultivoWebSync")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+7b13b77c471bf86fd043223fb914227a590b9fcd")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+e739f36947e2ba2b2af0306e9d4959265bb15d9b")]
 [assembly: System.Reflection.AssemblyProductAttribute("AgrocultivoWebSync")]
 [assembly: System.Reflection.AssemblyTitleAttribute("AgrocultivoWebSync")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
